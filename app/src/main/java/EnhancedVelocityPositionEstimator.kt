@@ -1,10 +1,10 @@
 package com.example.try1
 
-import android.util.Log
 import kotlin.math.*
 
 /**
- * Enhanced motion + position estimator with step detection and ZUPT
+ * Enhanced motion + position estimator with step detection and ZUPT.
+ * Does NOT log directly — instead returns step info for the service to log.
  */
 class EnhancedVelocityPositionEstimator(
     private val accelNoiseThreshold: Float = 0.1f,
@@ -22,21 +22,26 @@ class EnhancedVelocityPositionEstimator(
 
     private var lastStepTimestamp: Long = 0L
     private val magAccelWindow = mutableListOf<Float>()
-    private var lastStepLength: Float = 0f
     private val gravity = 9.81f
 
+    data class StepResult(
+        val velocity: FloatArray,
+        val position: FloatArray,
+        val stepLength: Float? = null
+    )
+
     /**
-     * Call this with filtered accel + orientation + timestamp
-     * Returns velocity & position pair.
+     * Update motion state with accel, orientation, timestamp.
+     * Returns velocity, position, and step length if a step was detected.
      */
     fun update(
         accelBody: FloatArray,
         orientation: Triple<Float, Float, Float>,
         timestamp: Long
-    ): Pair<FloatArray, FloatArray> {
+    ): StepResult {
         if (lastTimestamp == 0L) {
             lastTimestamp = timestamp
-            return Pair(velocity.copyOf(), position.copyOf())
+            return StepResult(velocity.copyOf(), position.copyOf())
         }
         val dt = (timestamp - lastTimestamp) / 1_000_000_000.0f
         lastTimestamp = timestamp
@@ -44,11 +49,9 @@ class EnhancedVelocityPositionEstimator(
         val accelWorld = rotateToWorld(accelBody, orientation)
         accelWorld[2] -= gravity
 
-        val aMag = sqrt(accelWorld[0] * accelWorld[0] + accelWorld[1] * accelWorld[1] + accelWorld[2] * accelWorld[2])
+        val aMag = sqrt(accelWorld[0].pow(2) + accelWorld[1].pow(2) + accelWorld[2].pow(2))
         magAccelWindow.add(aMag)
-        if (magAccelWindow.size > 50) {
-            magAccelWindow.removeAt(0)
-        }
+        if (magAccelWindow.size > 50) magAccelWindow.removeAt(0)
         val meanMag = magAccelWindow.average().toFloat()
         val deltaTh = meanMag * dynamicThresholdFactor
 
@@ -60,29 +63,26 @@ class EnhancedVelocityPositionEstimator(
             val varAcc = variance(magAccelWindow)
             val stepLen = freqWeight * stepFreq + varWeight * varAcc + constantSL
 
-            lastStepLength = stepLen
+            // Update position step-wise using yaw as heading
             position[0] += stepLen * cos(orientation.third)
             position[1] += stepLen * sin(orientation.third)
 
-            // Zero-velocity update: reset velocity on step detected
+            // Zero velocity update
             velocity = FloatArray(3) { 0f }
 
-            // Log the step detection and step length
-            Log.i("StepDetection", "Step detected: length = ${"%.2f".format(stepLen)} m, " +
-                    "New Position=(${position[0]}, ${position[1]})")
+            return StepResult(velocity.copyOf(), position.copyOf(), stepLen)
         } else {
+            // Continuous integration fallback
             for (i in 0..2) {
                 val a = if (abs(accelWorld[i]) < accelNoiseThreshold) 0f else accelWorld[i]
                 velocity[i] += a * dt
             }
-
-            val speed = sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2])
-            if (speed < velocityZeroThreshold) {
-                velocity = FloatArray(3) { 0f }
-            }
+            val speed = sqrt(velocity.map { it * it }.sum())
+            if (speed < velocityZeroThreshold) velocity = FloatArray(3) { 0f }
             for (i in 0..2) position[i] += velocity[i] * dt
         }
-        return Pair(velocity.copyOf(), position.copyOf())
+
+        return StepResult(velocity.copyOf(), position.copyOf(), null)
     }
 
     private fun detectStep(aMag: Float, deltaTh: Float, timestamp: Long): Boolean {
@@ -98,23 +98,22 @@ class EnhancedVelocityPositionEstimator(
     private fun variance(list: List<Float>): Float {
         if (list.isEmpty()) return 0f
         val mean = list.average().toFloat()
-        return list.fold(0f) { acc, v -> acc + (v - mean) * (v - mean) } / list.size
+        return list.fold(0f) { acc, v -> acc + (v - mean).pow(2) } / list.size
     }
 
     private fun rotateToWorld(accel: FloatArray, orientation: Triple<Float, Float, Float>): FloatArray {
         val (roll, pitch, yaw) = orientation
-        val sinR = sin(roll)
-        val cosR = cos(roll)
-        val sinP = sin(pitch)
-        val cosP = cos(pitch)
-        val sinY = sin(yaw)
-        val cosY = cos(yaw)
+        val sinR = sin(roll); val cosR = cos(roll)
+        val sinP = sin(pitch); val cosP = cos(pitch)
+        val sinY = sin(yaw); val cosY = cos(yaw)
+
         val rot = arrayOf(
             floatArrayOf(cosP * cosY, sinR * sinP * cosY - cosR * sinY, cosR * sinP * cosY + sinR * sinY),
             floatArrayOf(cosP * sinY, sinR * sinP * sinY + cosR * cosY, cosR * sinP * sinY - sinR * cosY),
             floatArrayOf(-sinP, sinR * cosP, cosR * cosP)
         )
-        val out = FloatArray(3) { 0f }
+
+        val out = FloatArray(3)
         for (i in 0..2) for (j in 0..2) out[i] += rot[i][j] * accel[j]
         return out
     }
