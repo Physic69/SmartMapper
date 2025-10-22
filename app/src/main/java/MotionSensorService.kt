@@ -1,113 +1,163 @@
 package com.example.try1
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
 class MotionSensorService : Service(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var accelerometer: Sensor? = null
-    private var gyroscope: Sensor? = null
+    private var rotationVectorSensor: Sensor? = null
 
     private val sensorPreprocessor = SensorPreprocessor()
-    private val orientationEstimator = OrientationEstimator()
-    private val positionEstimator = EnhancedVelocityPositionEstimator() // NEW
+    private val positionEstimator = EnhancedVelocityPositionEstimator()
 
-    private var lastAccelRaw = FloatArray(3) { 0f }
-    private var lastGyroRaw = FloatArray(3) { 0f }
-    private var isCalibrated = false
+    // --- START OF CALIBRATION FIX ---
+    private var isCalibrating = true
+    private val calibrationSamples = mutableListOf<FloatArray>()
+    private val requiredSamples = 200 // Collect 200 samples for a stable average
+    // --- END OF CALIBRATION FIX ---
+
+    private var lastAccelRaw = FloatArray(3)
+    private var rotationMatrix = FloatArray(9)
+
+    companion object {
+        const val NOTIFICATION_ID = 1
+        const val CHANNEL_ID = "MotionSensorServiceChannel"
+        val ACTION_SENSOR_DATA_UPDATE = "com.example.try1.SENSOR_DATA_UPDATE"
+        // New constants to send status updates to the UI
+        val ACTION_STATUS_UPDATE = "com.example.try1.STATUS_UPDATE"
+        val EXTRA_STATUS_MESSAGE = "com.example.try1.EXTRA_STATUS_MESSAGE"
+        val EXTRA_POSITION_X = "com.example.try1.EXTRA_POSITION_X"
+        val EXTRA_POSITION_Y = "com.example.try1.EXTRA_POSITION_Y"
+        val EXTRA_POSITION_Z = "com.example.try1.EXTRA_POSITION_Z"
+    }
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, createNotification())
 
-        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
-        } ?: run {
-            Log.w("MotionSensorService", "Accelerometer not available")
-        }
+        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_FASTEST)
+        sensorManager.registerListener(this, rotationVectorSensor, SensorManager.SENSOR_DELAY_FASTEST)
 
-        gyroscope?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
-        } ?: run {
-            Log.w("MotionSensorService", "Gyroscope not available")
-        }
-
-        Log.d("MotionSensorService", "Service created, waiting for calibration")
+        Log.d("MotionSensorService", "Service created, starting calibration.")
+        // Tell the UI that we are now calibrating
+        sendStatusUpdate("Calibrating... Hold Still!")
     }
 
     override fun onSensorChanged(event: SensorEvent) {
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
-                lastAccelRaw[0] = event.values[0]
-                lastAccelRaw[1] = event.values[1]
-                lastAccelRaw[2] = event.values[2]
+                // --- START OF CALIBRATION FIX ---
+                // If we are in calibration mode, collect samples
+                if (isCalibrating) {
+                    processCalibration(event.values)
+                } else {
+                    // Otherwise, do the normal motion processing
+                    processMotion(event)
+                }
+                // --- END OF CALIBRATION FIX ---
             }
-            Sensor.TYPE_GYROSCOPE -> {
-                lastGyroRaw[0] = event.values[0]
-                lastGyroRaw[1] = event.values[1]
-                lastGyroRaw[2] = event.values[2]
+            Sensor.TYPE_ROTATION_VECTOR -> {
+                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
             }
-        }
-
-        // Calibrate once assuming device is stationary at start
-        if (!isCalibrated && lastAccelRaw.any { it != 0f } && lastGyroRaw.any { it != 0f }) {
-            sensorPreprocessor.calibrate(lastAccelRaw, lastGyroRaw)
-            isCalibrated = true
-            Log.i("MotionSensorService", "Calibration completed with initial stationary readings")
-            return
-        }
-
-        if (isCalibrated) {
-            val (accelFiltered, gyroFiltered) = sensorPreprocessor.preprocess(lastAccelRaw, lastGyroRaw)
-
-            // Step 4: Orientation
-            val orientation = orientationEstimator.updateOrientation(accelFiltered, gyroFiltered, event.timestamp)
-
-            // Step 5: Motion integration with drift management (PDR-inspired)
-            val (velocity, position) = positionEstimator.update(accelFiltered, orientation, event.timestamp)
-
-            // Log filtered data, orientation, and estimated motion
-            Log.d("MotionSensorService",
-                "Filtered Accel: x=${accelFiltered[0]}, y=${accelFiltered[1]}, z=${accelFiltered[2]}"
-            )
-            Log.d("MotionSensorService",
-                "Filtered Gyro: x=${gyroFiltered[0]}, y=${gyroFiltered[1]}, z=${gyroFiltered[2]}"
-            )
-            Log.d("MotionSensorService",
-                "Orientation (deg): roll=${Math.toDegrees(orientation.first.toDouble())}, " +
-                        "pitch=${Math.toDegrees(orientation.second.toDouble())}, yaw=${Math.toDegrees(orientation.third.toDouble())}"
-            )
-            Log.d("MotionSensorService",
-                "Velocity: x=${velocity[0]}, y=${velocity[1]}, z=${velocity[2]}"
-            )
-            Log.d("MotionSensorService",
-                "Position: x=${position[0]}, y=${position[1]}, z=${position[2]}"
-            )
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-        // Optional
+    // --- START OF CALIBRATION FIX ---
+    /**
+     * Collects accelerometer samples. When enough are collected, it computes the
+     * average and uses that as the bias.
+     */
+    private fun processCalibration(accelValues: FloatArray) {
+        calibrationSamples.add(accelValues.copyOf())
+
+        // Check if we have enough samples
+        if (calibrationSamples.size >= requiredSamples) {
+            val avgAccel = FloatArray(3)
+            // Calculate the average for each axis
+            for (i in 0..2) {
+                avgAccel[i] = calibrationSamples.map { it[i] }.average().toFloat()
+            }
+
+            // Use the stable average to set the bias
+            sensorPreprocessor.calibrate(avgAccel)
+            isCalibrating = false
+            calibrationSamples.clear() // Free up memory
+            Log.i("MotionSensorService", "Calibration completed with bias: ${avgAccel.joinToString()}")
+            // Tell the UI that tracking is now active
+            sendStatusUpdate("Tracking Active")
+        }
+    }
+    // --- END OF CALIBRATION FIX ---
+
+    /**
+     * The original logic that runs AFTER calibration is complete.
+     */
+    private fun processMotion(event: SensorEvent) {
+        System.arraycopy(event.values, 0, lastAccelRaw, 0, 3)
+        if (rotationMatrix.any { it != 0f }) {
+            val accelFiltered = sensorPreprocessor.preprocess(lastAccelRaw)
+            val (_, position) = positionEstimator.update(accelFiltered, rotationMatrix, event.timestamp)
+            sendDataToActivity(position)
+        }
     }
 
+    /**
+     * Sends a status message (e.g., "Calibrating") to the MainActivity.
+     */
+    private fun sendStatusUpdate(message: String) {
+        val intent = Intent(ACTION_STATUS_UPDATE).apply {
+            putExtra(EXTRA_STATUS_MESSAGE, message)
+        }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    }
+
+    private fun sendDataToActivity(position: FloatArray) {
+        val intent = Intent(ACTION_SENSOR_DATA_UPDATE).apply {
+            putExtra(EXTRA_POSITION_X, position[0])
+            putExtra(EXTRA_POSITION_Y, position[1])
+            putExtra(EXTRA_POSITION_Z, position[2])
+        }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    }
+
+    // --- Unchanged methods from here ---
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     override fun onDestroy() {
         sensorManager.unregisterListener(this)
+        sendStatusUpdate("Idle")
         super.onDestroy()
-        Log.d("MotionSensorService", "Service destroyed and listeners unregistered")
     }
-
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    override fun onBind(intent: Intent?): IBinder? = null
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(CHANNEL_ID, "Motion Sensor Service Channel", NotificationManager.IMPORTANCE_DEFAULT)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(serviceChannel)
+        }
+    }
+    private fun createNotification(): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Motion Tracking Active")
+            .setContentText("Tracking your movement in the background.")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .build()
     }
 }
