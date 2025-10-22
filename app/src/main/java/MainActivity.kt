@@ -21,30 +21,38 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
-    private lateinit var statusTextView: TextView // For showing "Calibrating..."
+    private lateinit var statusTextView: TextView
     private lateinit var positionXTextView: TextView
     private lateinit var positionYTextView: TextView
     private lateinit var positionZTextView: TextView
+    // Variable for the new variance TextView
+    private lateinit var varianceTextView: TextView
     private lateinit var pathView: PathView
 
     private val sensorDataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 MotionSensorService.ACTION_SENSOR_DATA_UPDATE -> {
-                    // ... (this part is unchanged)
                     val posX = intent.getFloatExtra(MotionSensorService.EXTRA_POSITION_X, 0f)
                     val posY = intent.getFloatExtra(MotionSensorService.EXTRA_POSITION_Y, 0f)
                     val posZ = intent.getFloatExtra(MotionSensorService.EXTRA_POSITION_Z, 0f)
+                    // Get the variance from the intent
+                    val variance = intent.getFloatExtra(MotionSensorService.EXTRA_VARIANCE, 0f)
+
                     positionXTextView.text = "Position X: ${"%.2f".format(posX)} m"
                     positionYTextView.text = "Position Y: ${"%.2f".format(posY)} m"
                     positionZTextView.text = "Position Z: ${"%.2f".format(posZ)} m"
+                    // Display the live variance value
+                    varianceTextView.text = "Variance: ${"%.5f".format(variance)}"
+
                     pathView.addPoint(posX, posY)
                 }
-                // --- CALIBRATION UI FIX ---
-                // Listen for the new status updates
                 MotionSensorService.ACTION_STATUS_UPDATE -> {
                     val message = intent.getStringExtra(MotionSensorService.EXTRA_STATUS_MESSAGE) ?: "Idle"
                     statusTextView.text = "Status: $message"
+                    if (message.startsWith("Calibrating")) {
+                        pathView.clearPath()
+                    }
                 }
             }
         }
@@ -52,7 +60,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main) // Make sure you have activity_main.xml
+        setContentView(R.layout.activity_main)
 
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
@@ -60,11 +68,12 @@ class MainActivity : AppCompatActivity() {
         positionXTextView = findViewById(R.id.positionXTextView)
         positionYTextView = findViewById(R.id.positionYTextView)
         positionZTextView = findViewById(R.id.positionZTextView)
+        // Initialize the new TextView
+        varianceTextView = findViewById(R.id.varianceTextView)
         pathView = findViewById(R.id.pathView)
 
         startButton.setOnClickListener {
             if (hasPermissions()) {
-                pathView.clearPath() // Clear path when starting
                 startMotionService()
             } else {
                 requestPermissions()
@@ -78,15 +87,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Make sure the receiver listens for both types of actions
         val filter = IntentFilter().apply {
             addAction(MotionSensorService.ACTION_SENSOR_DATA_UPDATE)
             addAction(MotionSensorService.ACTION_STATUS_UPDATE)
         }
         LocalBroadcastManager.getInstance(this).registerReceiver(sensorDataReceiver, filter)
     }
-
-    // ... (rest of MainActivity is unchanged)
 
     override fun onPause() {
         super.onPause()
