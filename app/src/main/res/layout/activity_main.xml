@@ -56,10 +56,19 @@
         android:layout_height="wrap_content"
         android:text="Position Z: 0.00 m" />
 
+    <TextView
+        android:id="@+id/varianceTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Variance: 0.0000"
+        android:textColor="#FF0000"
+        android:textStyle="bold" />
+
     <com.example.try1.PathView
         android:id="@+id/pathView"
-        android:layout_width="wrap_content"
-        android:layout_height="417dp"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
         android:layout_marginTop="16dp"
         android:layout_weight="1"
         android:background="#E0E0E0" />
