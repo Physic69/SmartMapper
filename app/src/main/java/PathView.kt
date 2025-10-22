@@ -55,6 +55,12 @@ class PathView @JvmOverloads constructor(
             path.computeBounds(pathBounds, true)
         }
     }
+    fun setPath(newPoints: List<PointF>) {
+        points.clear()
+        points.addAll(newPoints)
+        rebuildPath()
+        invalidate()
+    }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)

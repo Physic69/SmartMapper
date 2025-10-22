@@ -5,9 +5,18 @@ import kotlin.math.sqrt
 
 class EnhancedVelocityPositionEstimator(
     private val accelNoiseThreshold: Float = 0.05f,
-    private val stillnessVarianceThreshold: Float = 0.025f, // This is the value you will tune
-    private val stillnessMagnitudeThreshold: Float = 0.2f
+    // We can use a reasonable, not overly aggressive threshold now
+    private val stillnessVarianceThreshold: Float = 0.01f,
+    private val stillnessMagnitudeThreshold: Float = 0.4f // Slightly more forgiving magnitude
 ) {
+    // --- START OF NEW LOGIC ---
+    private enum class MotionState { STATIONARY, MOVING }
+    private var motionState = MotionState.STATIONARY
+    private var stillnessCounter = 0
+    // The device must be still for this many consecutive readings to be considered stopped.
+    private val requiredStillnessFrames = 15
+    // --- END OF NEW LOGIC ---
+
     private var velocity = FloatArray(3) { 0f }
     private var position = FloatArray(3) { 0f }
     private var lastTimestamp: Long = 0L
@@ -16,14 +25,11 @@ class EnhancedVelocityPositionEstimator(
     private var gravityEstimate = FloatArray(3) { 0f }
     private val gravityFilterAlpha = 0.8f
     private val EARTH_GRAVITY = 9.8f
-    private val dampingFactor = 0.9f
+    private val dampingFactor = 0.8f // A balanced damping factor
 
-    // --- START OF DEBUGGING CODE ---
-    // This public property will hold the latest variance value for the UI to display.
+    // DEBUGGING: Public property to hold the latest variance value
     var lastCalculatedVariance: Float = 0f
-        private set // Makes it read-only from outside the class
-    // --- END OF DEBUGGING CODE ---
-
+        private set
 
     fun update(
         accelBody: FloatArray,
@@ -43,35 +49,48 @@ class EnhancedVelocityPositionEstimator(
         lastTimestamp = timestamp
 
         val accelWorld = rotateToWorld(accelBody, rotationMatrix)
-
         worldAccelWindow.add(accelWorld.copyOf())
         if (worldAccelWindow.size > 20) {
             worldAccelWindow.removeAt(0)
         }
 
-        val isStill = isDeviceStationary()
+        // --- START OF NEW LOGIC ---
+        // This is now a simple check, not the final decision maker
+        val isCurrentlyStill = isDevicePotentiallyStationary()
 
-        if (isStill) {
+        // Update the state machine based on the check
+        if (isCurrentlyStill) {
+            stillnessCounter++
+            if (stillnessCounter >= requiredStillnessFrames) {
+                motionState = MotionState.STATIONARY
+            }
+        } else {
+            stillnessCounter = 0
+            motionState = MotionState.MOVING
+        }
+
+        // Now, act based on the STABLE state, not the twitchy check
+        if (motionState == MotionState.STATIONARY) {
+            velocity = FloatArray(3) { 0f }
+            // When stationary, we can safely update our gravity estimate
             for (i in 0..2) {
                 gravityEstimate[i] = gravityFilterAlpha * gravityEstimate[i] + (1 - gravityFilterAlpha) * accelWorld[i]
             }
-        }
+        } else { // motionState == MotionState.MOVING
+            val linearAccel = FloatArray(3)
+            for (i in 0..2) {
+                linearAccel[i] = accelWorld[i] - gravityEstimate[i]
+            }
 
-        val linearAccel = FloatArray(3)
-        for (i in 0..2) {
-            linearAccel[i] = accelWorld[i] - gravityEstimate[i]
-        }
-
-        if (isStill) {
-            velocity = FloatArray(3) { 0f }
-        } else {
             for (i in 0..2) {
                 velocity[i] *= (1.0f - (1.0f - dampingFactor) * dt)
                 val a = if (abs(linearAccel[i]) < accelNoiseThreshold) 0f else linearAccel[i]
                 velocity[i] += a * dt
             }
         }
+        // --- END OF NEW LOGIC ---
 
+        // Position is always updated from velocity
         for (i in 0..2) {
             position[i] += velocity[i] * dt
         }
@@ -79,7 +98,8 @@ class EnhancedVelocityPositionEstimator(
         return Pair(velocity.copyOf(), position.copyOf())
     }
 
-    private fun isDeviceStationary(): Boolean {
+    // Renamed to reflect its new role
+    private fun isDevicePotentiallyStationary(): Boolean {
         if (worldAccelWindow.size < 20) return false
 
         val xVar = variance(worldAccelWindow.map { it[0] })
@@ -87,10 +107,8 @@ class EnhancedVelocityPositionEstimator(
         val zVar = variance(worldAccelWindow.map { it[2] })
         val totalVariance = xVar + yVar + zVar
 
-        // --- START OF DEBUGGING CODE ---
-        // Store the calculated variance so the service can access it.
+        // DEBUGGING: Store the calculated variance so the service can access it.
         lastCalculatedVariance = totalVariance
-        // --- END OF DEBUGGING CODE ---
 
         if (totalVariance > stillnessVarianceThreshold) {
             return false

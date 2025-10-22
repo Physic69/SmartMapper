@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.viewModels // Import for viewModels delegate
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -25,9 +26,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var positionXTextView: TextView
     private lateinit var positionYTextView: TextView
     private lateinit var positionZTextView: TextView
-    // Variable for the new variance TextView
-    private lateinit var varianceTextView: TextView
     private lateinit var pathView: PathView
+
+    // --- START OF ViewModel FIX ---
+    private val pathViewModel: PathViewModel by viewModels()
+    // --- END of ViewModel FIX ---
 
     private val sensorDataReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -36,22 +39,20 @@ class MainActivity : AppCompatActivity() {
                     val posX = intent.getFloatExtra(MotionSensorService.EXTRA_POSITION_X, 0f)
                     val posY = intent.getFloatExtra(MotionSensorService.EXTRA_POSITION_Y, 0f)
                     val posZ = intent.getFloatExtra(MotionSensorService.EXTRA_POSITION_Z, 0f)
-                    // Get the variance from the intent
-                    val variance = intent.getFloatExtra(MotionSensorService.EXTRA_VARIANCE, 0f)
 
                     positionXTextView.text = "Position X: ${"%.2f".format(posX)} m"
                     positionYTextView.text = "Position Y: ${"%.2f".format(posY)} m"
                     positionZTextView.text = "Position Z: ${"%.2f".format(posZ)} m"
-                    // Display the live variance value
-                    varianceTextView.text = "Variance: ${"%.5f".format(variance)}"
 
-                    pathView.addPoint(posX, posY)
+                    // Update the ViewModel, not the View directly
+                    pathViewModel.addPoint(posX, posY)
                 }
                 MotionSensorService.ACTION_STATUS_UPDATE -> {
                     val message = intent.getStringExtra(MotionSensorService.EXTRA_STATUS_MESSAGE) ?: "Idle"
                     statusTextView.text = "Status: $message"
+                    // Clear the path via the ViewModel
                     if (message.startsWith("Calibrating")) {
-                        pathView.clearPath()
+                        pathViewModel.clearPath()
                     }
                 }
             }
@@ -62,15 +63,21 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Initialize views
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
         statusTextView = findViewById(R.id.statusTextView)
         positionXTextView = findViewById(R.id.positionXTextView)
         positionYTextView = findViewById(R.id.positionYTextView)
         positionZTextView = findViewById(R.id.positionZTextView)
-        // Initialize the new TextView
-        varianceTextView = findViewById(R.id.varianceTextView)
         pathView = findViewById(R.id.pathView)
+
+        // --- START OF ViewModel FIX ---
+        // Observe the path data. When it changes, update the PathView.
+        pathViewModel.pathPoints.observe(this) { points ->
+            pathView.setPath(points)
+        }
+        // --- END of ViewModel FIX ---
 
         startButton.setOnClickListener {
             if (hasPermissions()) {
@@ -79,11 +86,12 @@ class MainActivity : AppCompatActivity() {
                 requestPermissions()
             }
         }
-
         stopButton.setOnClickListener {
             stopMotionService()
         }
     }
+
+    // ... (rest of MainActivity is unchanged)
 
     override fun onResume() {
         super.onResume()
