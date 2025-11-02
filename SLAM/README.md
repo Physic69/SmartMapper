@@ -1,16 +1,13 @@
 # ORB_SLAM3_AR-for-Android
 ## Introduction
-This is an Android Augmented Reality APP based on [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) and OpenGL. *(TODO: The demo video can be found in the links below.)*
+This is an Android Augmented Reality APP based on [ORB-SLAM3](https://github.com/UZ-SLAMLab/ORB_SLAM3) and OpenGL.
 
 ## Notice
-We thank the great contribution of [@muziyongshixin](https://github.com/muziyongshixin/ORB-SLAM2-based-AR-on-Android).
 
-**This project is simple and basic**, and I focus on the SLAM algorithm. You can discuss with [@Abonaventure](https://github.com/Abonaventure/ORB_SLAM3_AR-for-Android) or email bonaventure@163.com if you have any issues or questions.
-
-Using this project, Another repo has been devised where Location tracking is partially being done instead of Earth, You can check [this](https://github.com/Physic69/SmartMapper) repo to see how the ORB_SLAM3_AR-for-Android is being used.
+This project was done using the following [Repo](https://github.com/Rishik-Y/ORB_SLAM3_AR-for-Android).
 
 ## Demo Videos
-*(TODO)*
+[Here](https://drive.google.com/file/d/1zde_JSyWnek8S8Msw9xf6sHIxpuMDN5G/view?usp=sharing)
 
 ## Dependencies, Installation & Usage
 
@@ -104,8 +101,6 @@ Using this project, Another repo has been devised where Location tracking is par
 - Due to the diversity of Android system version, you may also need to change some configurarions in the ***AndroidManifest.xml*** to make sure that the app have the authority to use the camera and file system.
 
 ## Framework & Results
-The system is consisted of two parts(https://github.com/Abonaventure/ORB_SLAM3_AR-for-Android), the ORB-SLAM3 part which is used to get the camera's pose matrix. The other part is the OpenGL Rendering module, which use the pose matrix to render the 3D object(the earth in this project).
-
 The ORB-SLAM3 system requires lots of computing resources and depend on Calibration the camera, so this APP can not initilize very quikly(the screen will show red "SLAM NOT INITIALIZED").It's better to choose a rich texture scene to initilize the SLAM(the screen will show green "SLAM ON").
 
 The ORB-SLAM3 system requires significant computing resources and depend on Calibration the camera, so this APP may not initilize very quikly(the screen will show red "SLAM NOT INITIALIZED").It's better to choose a rich texture scene to initilize the SLAM(the screen will show green "SLAM ON").
