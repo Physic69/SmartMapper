@@ -13,3 +13,13 @@ local.properties
 *.apk
 *.orig
 *~
+
+# Third-party dependencies and SDKs (configured via setup_dependencies_local.bat or README.md)
+/app/src/main/cpp/boost/
+/app/src/main/cpp/Eigen/
+/app/src/main/cpp/ORB/Thirdparty/Sophus/
+/app/src/main/cpp/opencv/
+/opencvLibrary/java/
+/opencvLibrary/libcxx_helper/
+/opencvLibrary/native/
+

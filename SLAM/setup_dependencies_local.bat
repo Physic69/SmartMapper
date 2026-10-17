@@ -25,6 +25,12 @@ echo [4/4] Setting up OpenCV SDK...
 xcopy /E /I /Y "%SOURCE_DIR%\app\src\main\cpp\opencv\opencv-4.12.0\include" "app\src\main\cpp\opencv\opencv-4.12.0\include\" > nul
 xcopy /E /I /Y "%SOURCE_DIR%\opencvLibrary\java" "opencvLibrary\java\" > nul
 xcopy /E /I /Y "%SOURCE_DIR%\opencvLibrary\libcxx_helper" "opencvLibrary\libcxx_helper\" > nul
+if not exist "opencvLibrary\native" (
+    mklink /J "opencvLibrary\native" "%SOURCE_DIR%\opencvLibrary\native" > nul 2>&1
+    if errorlevel 1 (
+        xcopy /E /I /Y "%SOURCE_DIR%\opencvLibrary\native" "opencvLibrary\native\" > nul
+    )
+)
 
 echo.
 echo ==========================================================
