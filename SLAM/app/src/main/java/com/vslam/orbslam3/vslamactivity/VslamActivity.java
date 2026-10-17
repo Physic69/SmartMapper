@@ -142,7 +142,7 @@ public class VslamActivity extends Activity implements CameraBridgeViewBase.CvCa
 
         //文本框初始化
         myTextView = (TextView) findViewById(R.id.myTextView);
-        myTextView.setText("当前值Scale为:" + SCALE);
+        myTextView.setText("Current Scale value: " + SCALE);
 
         //SeekBar初始化
         seek = (SeekBar) findViewById(R.id.mySeekBar);
@@ -458,7 +458,7 @@ public class VslamActivity extends Activity implements CameraBridgeViewBase.CvCa
             } else {
                 SCALE = (50 - progress) * 0.5;
             }
-            myTextView.setText("当前值 为: " + SCALE);
+            myTextView.setText("Current value: " + SCALE);
 
         }
     };
